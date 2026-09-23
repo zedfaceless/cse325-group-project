@@ -1,6 +1,128 @@
 @page "/courses"
+@rendermode InteractiveServer
 @attribute [Authorize(Roles = "Teacher")]
+@inject ApplicationDbContext Db
+@using cse325_group_project.Data
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 
-<PageTitle>Courses</PageTitle>
-<h1>Courses</h1>
-<p>Placeholder — management page (Teacher only). Feature owner will implement.</p>
+<PageTitle>My Courses</PageTitle>
+
+<h1>My Courses</h1>
+
+@* ---- Create / Edit form. EditForm + DataAnnotationsValidator = the W04 module's
+      form stack: validation comes from the attributes on the Course model. ---- *@
+<div class="card p-3 mb-4" style="max-width: 480px;">
+    <h5>@(editing is null ? "Add a course" : $"Edit: {editing.Name}")</h5>
+    <EditForm Model="form" OnValidSubmit="Save" FormName="courseForm">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" />
+
+        <div class="mb-2">
+            <label class="form-label">Course name</label>
+            <InputText class="form-control" @bind-Value="form.Name" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">Description</label>
+            <InputTextArea class="form-control" @bind-Value="form.Description" />
+        </div>
+
+        <div>
+            <button type="submit" class="btn btn-primary">@(editing is null ? "Create" : "Save changes")</button>
+            @if (editing is not null)
+            {
+                <button type="button" class="btn btn-secondary ms-2" @onclick="CancelEdit">Cancel</button>
+            }
+        </div>
+    </EditForm>
+</div>
+
+@* ---- Course list ---- *@
+@if (courses.Count == 0)
+{
+    <p>No courses yet — create your first one above.</p>
+}
+else
+{
+    <table class="table" style="max-width: 720px;">
+        <thead>
+            <tr><th>Name</th><th>Description</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var course in courses)
+            {
+                <tr>
+                    <td>@course.Name</td>
+                    <td>@course.Description</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => StartEdit(course)">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => Delete(course)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    // The logged-in teacher's Identity user id, read from the auth state your Card 1 provides.
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private string teacherId = string.Empty;
+
+    private List<Course> courses = new();
+    private Course form = new();       // the object the EditForm binds to
+    private Course? editing = null;    // null = creating, otherwise the course being edited
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState!;
+        teacherId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        await LoadCourses();
+    }
+
+    private async Task LoadCourses()
+    {
+        // Teachers only ever see and manage their OWN courses.
+        courses = await Db.Courses.Where(c => c.TeacherId == teacherId)
+                                  .OrderBy(c => c.Name)
+                                  .ToListAsync();
+    }
+
+    private async Task Save()
+    {
+        if (editing is null)
+        {
+            form.TeacherId = teacherId;   // ownership set server-side, never from user input
+            Db.Courses.Add(form);
+        }
+        else
+        {
+            editing.Name = form.Name;
+            editing.Description = form.Description;
+        }
+        await Db.SaveChangesAsync();
+        form = new();
+        editing = null;
+        await LoadCourses();
+    }
+
+    private void StartEdit(Course course)
+    {
+        editing = course;
+        form = new Course { Name = course.Name, Description = course.Description };
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        form = new();
+    }
+
+    private async Task Delete(Course course)
+    {
+        Db.Courses.Remove(course);
+        await Db.SaveChangesAsync();
+        await LoadCourses();
+    }
+}
