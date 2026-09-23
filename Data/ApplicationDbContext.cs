@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using cse325_group_project.Models;
 
 namespace cse325_group_project.Data;
 
-public class ApplicationDbContext : DbContext
+// IdentityDbContext gives us the Users/Roles tables on top of our own entities.
+public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 {
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
 
