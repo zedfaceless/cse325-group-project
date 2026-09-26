@@ -1,6 +1,72 @@
 @page "/sessions"
 @attribute [Authorize(Roles = "Teacher")]
+@rendermode InteractiveServer
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@inject cse325_group_project.Data.ApplicationDbContext Db
 
 <PageTitle>Sessions</PageTitle>
 <h1>Sessions</h1>
-<p>Placeholder — management page (Teacher only). Feature owner will implement.</p>
+
+<a href="/sessions/create" class="btn btn-primary mb-3">+ New Session</a>
+
+@if (sessions is null)
+{
+    <p>Loading...</p>
+}
+else if (!sessions.Any())
+{
+    <p>No sessions yet.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Course</th>
+                <th>Date</th>
+                <th>Topic</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var s in sessions)
+            {
+                <tr>
+                    <td>Course #@s.CourseId</td>
+                    <td>@s.Date.ToShortDateString()</td>
+                    <td>@s.Topic</td>
+                    <td>
+                        <a href="/sessions/edit/@s.Id">Edit</a>
+                        <button class="btn btn-link text-danger" @onclick="() => Delete(s.Id)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Session>? sessions;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessions();
+    }
+
+    private async Task LoadSessions()
+    {
+        sessions = await Db.Sessions.OrderBy(s => s.Date).ToListAsync();
+    }
+
+    private async Task Delete(int id)
+    {
+        var session = await Db.Sessions.FindAsync(id);
+        if (session is not null)
+        {
+            Db.Sessions.Remove(session);
+            await Db.SaveChangesAsync();
+            await LoadSessions();
+        }
+    }
+}

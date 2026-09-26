@@ -1,0 +1,63 @@
+@page "/sessions/edit/{Id:int}"
+@attribute [Authorize(Roles = "Teacher")]
+@rendermode InteractiveServer
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@inject cse325_group_project.Data.ApplicationDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Edit Session</PageTitle>
+<h1>Edit Session</h1>
+
+@if (session is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <EditForm Model="session" OnValidSubmit="HandleValidSubmit" FormName="edit-session">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label">Course</label>
+            <InputSelect class="form-select" @bind-Value="session.CourseId">
+                @foreach (var course in courses)
+                {
+                    <option value="@course.Id">Course #@course.Id</option>
+                }
+            </InputSelect>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Date</label>
+            <InputDate class="form-control" @bind-Value="session.Date" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Topic</label>
+            <InputText class="form-control" @bind-Value="session.Topic" />
+        </div>
+
+        <button type="submit" class="btn btn-primary">Save</button>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Session? session;
+    private List<Course> courses = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        courses = await Db.Courses.ToListAsync();
+        session = await Db.Sessions.FindAsync(Id);
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        await Db.SaveChangesAsync();
+        Nav.NavigateTo("/sessions");
+    }
+}
