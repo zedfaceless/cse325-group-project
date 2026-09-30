@@ -1,0 +1,180 @@
+@page "/enrollments"
+@attribute [Authorize(Roles = "Teacher")]
+@rendermode InteractiveServer
+@using cse325_group_project.Data
+@using cse325_group_project.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+
+<PageTitle>Enrollments</PageTitle>
+<h1>Enrollments</h1>
+
+@if (message is not null)
+{
+    <div class="alert @messageCssClass" role="alert">@message</div>
+}
+
+@if (courses is null || students is null || enrollments is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    @if (!courses.Any())
+    {
+        <div class="alert alert-info">Create a course before enrolling students.</div>
+    }
+    else if (!students.Any())
+    {
+        <div class="alert alert-info">There are no registered students yet.</div>
+    }
+    else
+    {
+        <h2 class="h4">Enroll a student</h2>
+        <EditForm Model="newEnrollment" OnValidSubmit="EnrollStudent" FormName="create-enrollment">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            <div class="mb-3">
+                <label class="form-label" for="course">Course</label>
+                <InputSelect id="course" class="form-select" @bind-Value="newEnrollment.CourseId">
+                    <option value="0">Select a course</option>
+                    @foreach (var course in courses)
+                    {
+                        <option value="@course.Id">Course #@course.Id</option>
+                    }
+                </InputSelect>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label" for="student">Student</label>
+                <InputSelect id="student" class="form-select" @bind-Value="newEnrollment.StudentId">
+                    <option value="">Select a student</option>
+                    @foreach (var student in students)
+                    {
+                        <option value="@student.Id">@student.Email</option>
+                    }
+                </InputSelect>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Enroll student</button>
+        </EditForm>
+    }
+
+    <h2 class="h4 mt-4">Enrolled students</h2>
+    @if (!enrollments.Any())
+    {
+        <p>No students enrolled yet.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Course</th>
+                    <th>Student</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var enrollment in enrollments)
+                {
+                    <tr>
+                        <td>Course #@enrollment.CourseId</td>
+                        <td>@enrollment.Student?.Email</td>
+                        <td>
+                            <button class="btn btn-link text-danger" @onclick="() => RemoveEnrollment(enrollment.Id)">Remove</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private List<Course>? courses;
+    private List<ApplicationUser>? students;
+    private List<Enrollment>? enrollments;
+    private Enrollment newEnrollment = new();
+    private string? message;
+    private string messageCssClass = "alert-success";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        courses = await Db.Courses.AsNoTracking().OrderBy(c => c.Id).ToListAsync();
+        students = (await UserManager.GetUsersInRoleAsync("Student"))
+            .OrderBy(user => user.Email)
+            .ToList();
+        enrollments = await Db.Enrollments
+            .AsNoTracking()
+            .Include(e => e.Student)
+            .OrderBy(e => e.CourseId)
+            .ThenBy(e => e.Student!.Email)
+            .ToListAsync();
+    }
+
+    private async Task EnrollStudent()
+    {
+        if (!await Db.Courses.AnyAsync(course => course.Id == newEnrollment.CourseId))
+        {
+            SetMessage("The selected course no longer exists.", "alert-danger");
+            return;
+        }
+
+        var student = await UserManager.FindByIdAsync(newEnrollment.StudentId);
+        if (student is null || !await UserManager.IsInRoleAsync(student, "Student"))
+        {
+            SetMessage("The selected user is not a student.", "alert-danger");
+            return;
+        }
+
+        var alreadyEnrolled = await Db.Enrollments.AnyAsync(enrollment =>
+            enrollment.CourseId == newEnrollment.CourseId &&
+            enrollment.StudentId == newEnrollment.StudentId);
+
+        if (alreadyEnrolled)
+        {
+            SetMessage("This student is already enrolled in that course.", "alert-warning");
+            return;
+        }
+
+        Db.Enrollments.Add(new Enrollment
+        {
+            CourseId = newEnrollment.CourseId,
+            StudentId = newEnrollment.StudentId
+        });
+        await Db.SaveChangesAsync();
+
+        newEnrollment = new();
+        SetMessage("Student enrolled successfully.", "alert-success");
+        await LoadData();
+    }
+
+    private async Task RemoveEnrollment(int enrollmentId)
+    {
+        var enrollment = await Db.Enrollments.FindAsync(enrollmentId);
+        if (enrollment is null)
+        {
+            return;
+        }
+
+        Db.Enrollments.Remove(enrollment);
+        await Db.SaveChangesAsync();
+        SetMessage("Enrollment removed.", "alert-success");
+        await LoadData();
+    }
+
+    private void SetMessage(string text, string cssClass)
+    {
+        message = text;
+        messageCssClass = cssClass;
+    }
+}

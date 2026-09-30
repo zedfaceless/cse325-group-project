@@ -1,5 +1,7 @@
 using cse325_group_project.Components;
+using cse325_group_project.Components.Pages;
 using cse325_group_project.Data;
+using cse325_group_project.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -59,6 +61,15 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    if (!db.Courses.Any())
+    {
+        db.Courses.Add(new Course());
+        db.SaveChanges();
+    }
+}
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseAntiforgery();
