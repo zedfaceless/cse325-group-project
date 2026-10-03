@@ -3,22 +3,35 @@
 @rendermode InteractiveServer
 @using cse325_group_project.Models
 @using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 @inject cse325_group_project.Data.ApplicationDbContext Db
 @inject NavigationManager Nav
 
 <PageTitle>Create Session</PageTitle>
 <h1>Create Session</h1>
 
+@if (errorMessage is not null)
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+
+@if (!courses.Any())
+{
+    <div class="alert alert-info" role="alert">Create a course before adding a session.</div>
+}
+else
+{
 <EditForm Model="session" OnValidSubmit="HandleValidSubmit" FormName="create-session">
     <DataAnnotationsValidator />
     <ValidationSummary />
 
     <div class="mb-3">
-        <label class="form-label">Course</label>
-        <InputSelect class="form-select" @bind-Value="session.CourseId">
+        <label class="form-label" for="course">Course</label>
+        <InputSelect id="course" class="form-select" @bind-Value="session.CourseId">
+            <option value="0">Select a course</option>
             @foreach (var course in courses)
             {
-                <option value="@course.Id">Course #@course.Id</option>
+                <option value="@course.Id">@course.Name</option>
             }
         </InputSelect>
     </div>
@@ -35,18 +48,37 @@
 
     <button type="submit" class="btn btn-primary">Create</button>
 </EditForm>
+}
 
 @code {
-    private Session session = new();
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Session session = new() { Date = DateTime.Today };
     private List<Course> courses = new();
+    private string teacherId = string.Empty;
+    private string? errorMessage;
 
     protected override async Task OnInitializedAsync()
     {
-        courses = await Db.Courses.ToListAsync();
+        var auth = await AuthState!;
+        teacherId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        courses = await Db.Courses
+            .AsNoTracking()
+            .Where(course => course.TeacherId == teacherId)
+            .OrderBy(course => course.Name)
+            .ToListAsync();
     }
 
     private async Task HandleValidSubmit()
     {
+        var ownsCourse = await Db.Courses.AnyAsync(course =>
+            course.Id == session.CourseId && course.TeacherId == teacherId);
+        if (!ownsCourse)
+        {
+            errorMessage = "The selected course is not available.";
+            return;
+        }
+
         Db.Sessions.Add(session);
         await Db.SaveChangesAsync();
         Nav.NavigateTo("/sessions");

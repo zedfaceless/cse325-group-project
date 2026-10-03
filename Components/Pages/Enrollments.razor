@@ -5,6 +5,7 @@
 @using cse325_group_project.Models
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 @inject ApplicationDbContext Db
 @inject UserManager<ApplicationUser> UserManager
 
@@ -43,7 +44,7 @@ else
                     <option value="0">Select a course</option>
                     @foreach (var course in courses)
                     {
-                        <option value="@course.Id">Course #@course.Id</option>
+                        <option value="@course.Id">@course.Name</option>
                     }
                 </InputSelect>
             </div>
@@ -82,7 +83,7 @@ else
                 @foreach (var enrollment in enrollments)
                 {
                     <tr>
-                        <td>Course #@enrollment.CourseId</td>
+                        <td>@enrollment.Course?.Name</td>
                         <td>@enrollment.Student?.Email</td>
                         <td>
                             <button class="btn btn-link text-danger" @onclick="() => RemoveEnrollment(enrollment.Id)">Remove</button>
@@ -95,35 +96,47 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private List<Course>? courses;
     private List<ApplicationUser>? students;
     private List<Enrollment>? enrollments;
     private Enrollment newEnrollment = new();
     private string? message;
     private string messageCssClass = "alert-success";
+    private string teacherId = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
+        var auth = await AuthState!;
+        teacherId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
         await LoadData();
     }
 
     private async Task LoadData()
     {
-        courses = await Db.Courses.AsNoTracking().OrderBy(c => c.Id).ToListAsync();
+        courses = await Db.Courses
+            .AsNoTracking()
+            .Where(course => course.TeacherId == teacherId)
+            .OrderBy(course => course.Name)
+            .ToListAsync();
         students = (await UserManager.GetUsersInRoleAsync("Student"))
             .OrderBy(user => user.Email)
             .ToList();
         enrollments = await Db.Enrollments
             .AsNoTracking()
+            .Include(e => e.Course)
             .Include(e => e.Student)
-            .OrderBy(e => e.CourseId)
+            .Where(e => e.Course!.TeacherId == teacherId)
+            .OrderBy(e => e.Course!.Name)
             .ThenBy(e => e.Student!.Email)
             .ToListAsync();
     }
 
     private async Task EnrollStudent()
     {
-        if (!await Db.Courses.AnyAsync(course => course.Id == newEnrollment.CourseId))
+        if (!await Db.Courses.AnyAsync(course =>
+            course.Id == newEnrollment.CourseId && course.TeacherId == teacherId))
         {
             SetMessage("The selected course no longer exists.", "alert-danger");
             return;
@@ -160,7 +173,9 @@ else
 
     private async Task RemoveEnrollment(int enrollmentId)
     {
-        var enrollment = await Db.Enrollments.FindAsync(enrollmentId);
+        var enrollment = await Db.Enrollments
+            .Include(e => e.Course)
+            .SingleOrDefaultAsync(e => e.Id == enrollmentId && e.Course!.TeacherId == teacherId);
         if (enrollment is null)
         {
             return;

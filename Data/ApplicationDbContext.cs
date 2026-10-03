@@ -34,5 +34,21 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             .WithMany()
             .HasForeignKey(e => e.StudentId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<Attendance>()
+            .HasIndex(a => new { a.SessionId, a.StudentId })
+            .IsUnique();
+
+        builder.Entity<Attendance>()
+            .HasOne(a => a.Session)
+            .WithMany()
+            .HasForeignKey(a => a.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<Attendance>()
+            .HasOne(a => a.Student)
+            .WithMany()
+            .HasForeignKey(a => a.StudentId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

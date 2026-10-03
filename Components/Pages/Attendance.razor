@@ -1,6 +1,237 @@
 @page "/attendance"
+@page "/attendance/{SessionId:int}"
 @attribute [Authorize(Roles = "Teacher")]
+@rendermode InteractiveServer
+@using cse325_group_project.Data
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
+@inject ApplicationDbContext Db
 
 <PageTitle>Attendance</PageTitle>
 <h1>Attendance</h1>
-<p>Placeholder — management page (Teacher only). Feature owner will implement.</p>
+
+@if (message is not null)
+{
+    <div class="alert @messageCssClass" role="alert">@message</div>
+}
+
+@if (SessionId is null)
+{
+    @if (sessions is null)
+    {
+        <p>Loading...</p>
+    }
+    else if (!sessions.Any())
+    {
+        <div class="alert alert-info" role="alert">Create a session before recording attendance.</div>
+    }
+    else
+    {
+        <p>Select a session to record or edit attendance.</p>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Course</th>
+                    <th>Date</th>
+                    <th>Topic</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var classSession in sessions)
+                {
+                    <tr>
+                        <td>@classSession.Course?.Name</td>
+                        <td>@classSession.Date.ToShortDateString()</td>
+                        <td>@classSession.Topic</td>
+                        <td>
+                            <a class="btn btn-sm btn-primary" href="/attendance/@classSession.Id">Mark attendance</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+else if (session is null)
+{
+    <div class="alert alert-warning" role="alert">The session was not found.</div>
+}
+else
+{
+    <p class="text-muted">@session.Course?.Name · @session.Date.ToShortDateString() · @session.Topic</p>
+
+    @if (!attendanceRows.Any())
+    {
+        <div class="alert alert-info" role="alert">No students are enrolled in this course.</div>
+    }
+    else
+    {
+        <EditForm Model="attendanceRows" OnValidSubmit="SaveAttendance" FormName="attendance-form">
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in attendanceRows)
+                        {
+                            <tr>
+                                <td>@row.StudentEmail</td>
+                                <td>
+                                    <div class="form-check form-switch mb-0">
+                                        <InputCheckbox id="@($"student-{row.StudentId}")" class="form-check-input" @bind-Value="row.IsPresent" />
+                                        <label class="form-check-label" for="@($"student-{row.StudentId}")">
+                                            @(row.IsPresent ? "Present" : "Absent")
+                                        </label>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Save attendance</button>
+            <a class="btn btn-secondary ms-2" href="/attendance">Back to sessions</a>
+        </EditForm>
+    }
+}
+
+@code {
+    [Parameter] public int? SessionId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<Session>? sessions;
+    private Session? session;
+    private List<AttendanceRow> attendanceRows = new();
+    private string teacherId = string.Empty;
+    private string? message;
+    private string messageCssClass = "alert-success";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var auth = await AuthState!;
+        teacherId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        message = null;
+        session = null;
+        attendanceRows = new();
+
+        if (SessionId is null)
+        {
+            await LoadSessions();
+            return;
+        }
+
+        await LoadAttendance();
+    }
+
+    private async Task LoadSessions()
+    {
+        sessions = await Db.Sessions
+            .AsNoTracking()
+            .Include(classSession => classSession.Course)
+            .Where(classSession => classSession.Course!.TeacherId == teacherId)
+            .OrderBy(classSession => classSession.Date)
+            .ToListAsync();
+    }
+
+    private async Task LoadAttendance()
+    {
+        session = await Db.Sessions
+            .AsNoTracking()
+            .Include(classSession => classSession.Course)
+            .SingleOrDefaultAsync(classSession =>
+                classSession.Id == SessionId && classSession.Course!.TeacherId == teacherId);
+
+        if (session is null)
+        {
+            return;
+        }
+
+        var enrolledStudents = await Db.Enrollments
+            .AsNoTracking()
+            .Include(enrollment => enrollment.Student)
+            .Where(enrollment => enrollment.CourseId == session.CourseId)
+            .OrderBy(enrollment => enrollment.Student!.Email)
+            .ToListAsync();
+
+        var existingAttendance = await Db.Attendances
+            .AsNoTracking()
+            .Where(attendance => attendance.SessionId == session.Id)
+            .ToDictionaryAsync(attendance => attendance.StudentId);
+
+        attendanceRows = enrolledStudents
+            .Select(enrollment => new AttendanceRow
+            {
+                StudentId = enrollment.StudentId,
+                StudentEmail = enrollment.Student?.Email ?? enrollment.Student?.UserName ?? "Unknown student",
+                IsPresent = existingAttendance.TryGetValue(enrollment.StudentId, out var attendance) && attendance.IsPresent
+            })
+            .ToList();
+    }
+
+    private async Task SaveAttendance()
+    {
+        if (SessionId is not int sessionId || session is null)
+        {
+            SetMessage("The session is not available.", "alert-danger");
+            return;
+        }
+
+        var ownsSession = await Db.Sessions.AnyAsync(classSession =>
+            classSession.Id == sessionId && classSession.Course!.TeacherId == teacherId);
+        if (!ownsSession)
+        {
+            SetMessage("The session is not available.", "alert-danger");
+            return;
+        }
+
+        var enrolledStudentIds = await Db.Enrollments
+            .Where(enrollment => enrollment.CourseId == session.CourseId)
+            .Select(enrollment => enrollment.StudentId)
+            .ToListAsync();
+
+        var permittedStudentIds = enrolledStudentIds.ToHashSet();
+        var existingAttendance = await Db.Attendances
+            .Where(attendance => attendance.SessionId == sessionId)
+            .ToDictionaryAsync(attendance => attendance.StudentId);
+
+        foreach (var row in attendanceRows.Where(row => permittedStudentIds.Contains(row.StudentId)))
+        {
+            if (existingAttendance.TryGetValue(row.StudentId, out var attendance))
+            {
+                attendance.IsPresent = row.IsPresent;
+            }
+            else
+            {
+                Db.Attendances.Add(new cse325_group_project.Models.Attendance
+                {
+                    SessionId = sessionId,
+                    StudentId = row.StudentId,
+                    IsPresent = row.IsPresent
+                });
+            }
+        }
+
+        await Db.SaveChangesAsync();
+        SetMessage("Attendance saved.", "alert-success");
+    }
+
+    private void SetMessage(string text, string cssClass)
+    {
+        message = text;
+        messageCssClass = cssClass;
+    }
+
+    private sealed class AttendanceRow
+    {
+        public string StudentId { get; init; } = string.Empty;
+        public string StudentEmail { get; init; } = string.Empty;
+        public bool IsPresent { get; set; }
+    }
+}

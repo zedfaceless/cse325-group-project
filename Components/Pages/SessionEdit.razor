@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @using cse325_group_project.Models
 @using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 @inject cse325_group_project.Data.ApplicationDbContext Db
 @inject NavigationManager Nav
 
@@ -11,20 +12,26 @@
 
 @if (session is null)
 {
-    <p>Loading...</p>
+    <div class="alert alert-warning" role="alert">Session not found.</div>
 }
 else
 {
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+
     <EditForm Model="session" OnValidSubmit="HandleValidSubmit" FormName="edit-session">
         <DataAnnotationsValidator />
         <ValidationSummary />
 
         <div class="mb-3">
-            <label class="form-label">Course</label>
-            <InputSelect class="form-select" @bind-Value="session.CourseId">
+            <label class="form-label" for="course">Course</label>
+            <InputSelect id="course" class="form-select" @bind-Value="session.CourseId">
+                <option value="0">Select a course</option>
                 @foreach (var course in courses)
                 {
-                    <option value="@course.Id">Course #@course.Id</option>
+                    <option value="@course.Id">@course.Name</option>
                 }
             </InputSelect>
         </div>
@@ -45,18 +52,42 @@ else
 
 @code {
     [Parameter] public int Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private Session? session;
     private List<Course> courses = new();
+    private string teacherId = string.Empty;
+    private string? errorMessage;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        courses = await Db.Courses.ToListAsync();
-        session = await Db.Sessions.FindAsync(Id);
+        var auth = await AuthState!;
+        teacherId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        courses = await Db.Courses
+            .AsNoTracking()
+            .Where(course => course.TeacherId == teacherId)
+            .OrderBy(course => course.Name)
+            .ToListAsync();
+        session = await Db.Sessions
+            .Include(s => s.Course)
+            .SingleOrDefaultAsync(s => s.Id == Id && s.Course!.TeacherId == teacherId);
     }
 
     private async Task HandleValidSubmit()
     {
+        if (session is null)
+        {
+            return;
+        }
+
+        var ownsCourse = await Db.Courses.AnyAsync(course =>
+            course.Id == session.CourseId && course.TeacherId == teacherId);
+        if (!ownsCourse)
+        {
+            errorMessage = "The selected course is not available.";
+            return;
+        }
+
         await Db.SaveChangesAsync();
         Nav.NavigateTo("/sessions");
     }
