@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @using cse325_group_project.Models
 @using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 @inject cse325_group_project.Data.ApplicationDbContext Db
 
 <PageTitle>Sessions</PageTitle>
@@ -33,11 +34,12 @@ else
             @foreach (var s in sessions)
             {
                 <tr>
-                    <td>Course #@s.CourseId</td>
+                    <td>@s.Course?.Name</td>
                     <td>@s.Date.ToShortDateString()</td>
                     <td>@s.Topic</td>
                     <td>
-                        <a href="/sessions/edit/@s.Id">Edit</a>
+                        <a class="btn btn-sm btn-outline-primary" href="/sessions/edit/@s.Id">Edit</a>
+                        <a class="btn btn-sm btn-outline-secondary ms-1" href="/attendance/@s.Id">Attendance</a>
                         <button class="btn btn-link text-danger" @onclick="() => Delete(s.Id)">Delete</button>
                     </td>
                 </tr>
@@ -47,21 +49,33 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private List<Session>? sessions;
+    private string teacherId = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
+        var auth = await AuthState!;
+        teacherId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
         await LoadSessions();
     }
 
     private async Task LoadSessions()
     {
-        sessions = await Db.Sessions.OrderBy(s => s.Date).ToListAsync();
+        sessions = await Db.Sessions
+            .AsNoTracking()
+            .Include(s => s.Course)
+            .Where(s => s.Course!.TeacherId == teacherId)
+            .OrderBy(s => s.Date)
+            .ToListAsync();
     }
 
     private async Task Delete(int id)
     {
-        var session = await Db.Sessions.FindAsync(id);
+        var session = await Db.Sessions
+            .Include(s => s.Course)
+            .SingleOrDefaultAsync(s => s.Id == id && s.Course!.TeacherId == teacherId);
         if (session is not null)
         {
             Db.Sessions.Remove(session);
