@@ -10,8 +10,8 @@ Group project repository for CSE 325 .NET Software Development (BYU-Idaho).
 
 ## Project Status
 
-Project ideas are under consideration - see the group's Teams channel.
-The group will select the final project at the next weekly meeting.
+The selected project idea is: Institute Class Manager
+The project is now neaaring completion.
 
 ## Project Management
 
