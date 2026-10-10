@@ -33,17 +33,25 @@ builder.Services.AddCascadingAuthenticationState();
 
 var app = builder.Build();
 
-// ---- Seed roles + a first teacher account on startup ----
+// ---- Seed roles + a first teacher account on startup ---
 using (var scope = app.Services.CreateScope())
 {
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var services = scope.ServiceProvider;
+
+    // 1. Apply authomaticly migrations
+    var context = services.GetRequiredService<ApplicationDbContext>();
+    context.Database.Migrate();
+
+    // 2.Creating roles
+    var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
     foreach (var role in new[] { "Teacher", "Student" })
     {
         if (!await roleManager.RoleExistsAsync(role))
             await roleManager.CreateAsync(new IdentityRole(role));
     }
 
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+    // 3. Crearing teacher by deffault
+    var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
     var teacherEmail = "teacher@institute.test";
     if (await userManager.FindByEmailAsync(teacherEmail) is null)
     {
