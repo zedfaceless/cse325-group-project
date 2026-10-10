@@ -1,0 +1,75 @@
+@page "/my-attendance"
+@attribute [Authorize(Roles = "Student")]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using cse325_group_project.Data
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Db
+
+<PageTitle>My Attendance</PageTitle>
+<h1>My Attendance</h1>
+<p class="text-muted">Attendance records for your enrolled courses.</p>
+
+@if (loading)
+{
+    <p>Loading your attendance...</p>
+}
+else if (!records.Any())
+{
+    <div class="alert alert-info" role="status">No attendance records are available yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead><tr><th>Course</th><th>Session date</th><th>Topic</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var item in records)
+                {
+                    <tr>
+                        <td>@item.CourseName</td>
+                        <td>@item.SessionDate.ToString("D")</td>
+                        <td>@item.Topic</td>
+                        <td><span class="badge @(item.IsPresent ? "bg-success" : "bg-danger")">@(item.IsPresent ? "Present" : "Absent")</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private bool loading = true;
+    private List<AttendanceView> records = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState!;
+        var studentId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(studentId)) { loading = false; return; }
+
+        // The student ID comes only from the authenticated principal, never from a URL or form field.
+        records = await Db.Attendances.AsNoTracking()
+            .Where(a => a.StudentId == studentId && Db.Enrollments.Any(e => e.StudentId == studentId && e.CourseId == a.Session!.CourseId))
+            .Select(a => new AttendanceView
+            {
+                CourseName = a.Session!.Course!.Name,
+                SessionDate = a.Session.Date,
+                Topic = a.Session.Topic,
+                IsPresent = a.IsPresent
+            })
+            .OrderByDescending(a => a.SessionDate)
+            .ToListAsync();
+        loading = false;
+    }
+
+    private sealed class AttendanceView
+    {
+        public string CourseName { get; init; } = string.Empty;
+        public DateTime SessionDate { get; init; }
+        public string Topic { get; init; } = string.Empty;
+        public bool IsPresent { get; init; }
+    }
+}

@@ -1,6 +1,197 @@
 @page "/materials"
 @attribute [Authorize]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using cse325_group_project.Data
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Forms
+@inject ApplicationDbContext Db
+@inject IWebHostEnvironment Environment
+@inject NavigationManager Navigation
 
-<PageTitle>Materials</PageTitle>
-<h1>Materials</h1>
-<p>Placeholder — visible to any logged-in user. Feature owner will implement.</p>
+<PageTitle>Class Materials</PageTitle>
+<h1>Class Materials</h1>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @messageClass" role="alert">@message</div>
+}
+
+<AuthorizeView Roles="Teacher">
+    <Authorized Context="authContext">
+        <section class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5">Upload class material</h2>
+                <p class="text-muted">Allowed files: PDF, PowerPoint, Word, and text documents. Maximum size: 20 MB.</p>
+                <EditForm Model="uploadModel" OnValidSubmit="UploadMaterial" FormName="material-upload">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+                    <div class="mb-3">
+                        <label class="form-label" for="material-title">Title</label>
+                        <InputText id="material-title" class="form-control" @bind-Value="uploadModel.Title" />
+                        <ValidationMessage For="() => uploadModel.Title" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="material-description">Description (optional)</label>
+                        <InputTextArea id="material-description" class="form-control" @bind-Value="uploadModel.Description" />
+                        <ValidationMessage For="() => uploadModel.Description" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="material-course">Course</label>
+                        <InputSelect id="material-course" class="form-select" @bind-Value="uploadModel.CourseId">
+                            <option value="0">Select a course</option>
+                            @foreach (var course in teacherCourses)
+                            {
+                                <option value="@course.Id">@course.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="material-file">File</label>
+                        <InputFile id="material-file" OnChange="FileSelected" accept=".pdf,.ppt,.pptx,.doc,.docx,.txt" />
+                        @if (selectedFile is not null) { <div class="form-text">Selected: @selectedFile.Name (@(selectedFile.Size / 1024) KB)</div> }
+                    </div>
+                    <button type="submit" class="btn btn-primary" disabled="@uploading">@(uploading ? "Uploading..." : "Upload material")</button>
+                </EditForm>
+            </div>
+        </section>
+    </Authorized>
+</AuthorizeView>
+
+<h2 class="h4">Available materials</h2>
+@if (loading)
+{
+    <p>Loading materials...</p>
+}
+else if (!materials.Any())
+{
+    <div class="alert alert-info" role="status">No class materials are available to you yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead><tr><th>Title</th><th>Course</th><th>Description</th><th>Uploaded</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var material in materials)
+                {
+                    <tr>
+                        <td>@material.Title</td>
+                        <td>@material.CourseName</td>
+                        <td>@material.Description</td>
+                        <td>@material.UploadedAtUtc.ToLocalTime().ToString("d")</td>
+                        <td><a class="btn btn-sm btn-outline-primary" href="/materials/download/@material.Id">Download</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private const long MaxFileSize = 20 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+        { ".pdf", ".ppt", ".pptx", ".doc", ".docx", ".txt" };
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private UploadModel uploadModel = new();
+    private IBrowserFile? selectedFile;
+    private List<Course> teacherCourses = new();
+    private List<Material> materials = new();
+    private bool loading = true;
+    private bool uploading;
+    private string? message;
+    private string messageClass = "alert-success";
+    private string currentUserId = string.Empty;
+    private bool isTeacher;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState!;
+        currentUserId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        isTeacher = auth.User.IsInRole("Teacher");
+        if (isTeacher)
+            teacherCourses = await Db.Courses.AsNoTracking().Where(c => c.TeacherId == currentUserId).OrderBy(c => c.Name).ToListAsync();
+        await LoadMaterials();
+    }
+
+    private async Task LoadMaterials()
+    {
+        var query = Db.Materials.AsNoTracking().AsQueryable();
+        if (isTeacher)
+            query = query.Where(m => m.UploadedByTeacherId == currentUserId && Db.Courses.Any(c => c.Id == m.CourseId && c.TeacherId == currentUserId));
+        else
+            query = query.Where(m => Db.Enrollments.Any(e => e.StudentId == currentUserId && e.CourseId == m.CourseId));
+        materials = await query.OrderByDescending(m => m.UploadedAtUtc).ToListAsync();
+        var courseIds = materials.Select(m => m.CourseId).Distinct().ToList();
+        var courseNames = await Db.Courses.AsNoTracking().Where(c => courseIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name);
+        foreach (var material in materials)
+            material.CourseName = courseNames.GetValueOrDefault(material.CourseId, "Course unavailable");
+        loading = false;
+    }
+
+    private void FileSelected(InputFileChangeEventArgs args)
+    {
+        selectedFile = args.File;
+        message = null;
+        if (selectedFile.Size > MaxFileSize) SetMessage("The selected file exceeds the 20 MB limit.", "alert-danger");
+        else if (!AllowedExtensions.Contains(Path.GetExtension(selectedFile.Name))) SetMessage("This file type is not allowed.", "alert-danger");
+    }
+
+    private async Task UploadMaterial()
+    {
+        if (!isTeacher) { SetMessage("Only teachers can upload materials.", "alert-danger"); return; }
+        if (uploadModel.CourseId <= 0 || !teacherCourses.Any(c => c.Id == uploadModel.CourseId))
+        { SetMessage("Select one of your own courses.", "alert-danger"); return; }
+        if (selectedFile is null) { SetMessage("Choose a file to upload.", "alert-danger"); return; }
+        if (selectedFile.Size <= 0 || selectedFile.Size > MaxFileSize || !AllowedExtensions.Contains(Path.GetExtension(selectedFile.Name)))
+        { SetMessage("The file is empty, too large, or has an unsupported extension.", "alert-danger"); return; }
+
+        uploading = true;
+        string? storedPath = null;
+        try
+        {
+            var storageDirectory = Path.Combine(Environment.ContentRootPath, "App_Data", "class-materials");
+            Directory.CreateDirectory(storageDirectory);
+            var storageId = $"{Guid.NewGuid():N}{Path.GetExtension(selectedFile.Name).ToLowerInvariant()}";
+            storedPath = Path.Combine(storageDirectory, storageId);
+            await using (var destination = new FileStream(storedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            await using (var source = selectedFile.OpenReadStream(MaxFileSize))
+                await source.CopyToAsync(destination);
+
+            Db.Materials.Add(new Material
+            {
+                Title = uploadModel.Title.Trim(),
+                Description = string.IsNullOrWhiteSpace(uploadModel.Description) ? null : uploadModel.Description.Trim(),
+                FileName = Path.GetFileName(selectedFile.Name),
+                StorageId = storageId,
+                UploadedAtUtc = DateTime.UtcNow,
+                CourseId = uploadModel.CourseId,
+                UploadedByTeacherId = currentUserId
+            });
+            await Db.SaveChangesAsync();
+            SetMessage("Material uploaded successfully.", "alert-success");
+            uploadModel = new UploadModel();
+            selectedFile = null;
+            await LoadMaterials();
+        }
+        catch (Exception)
+        {
+            if (storedPath is not null && File.Exists(storedPath)) File.Delete(storedPath);
+            SetMessage("The material could not be uploaded. Please try again.", "alert-danger");
+        }
+        finally { uploading = false; }
+    }
+
+    private void SetMessage(string text, string cssClass) { message = text; messageClass = cssClass; }
+
+    private sealed class UploadModel
+    {
+        [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.StringLength(150, MinimumLength = 2)]
+        public string Title { get; set; } = string.Empty;
+        [System.ComponentModel.DataAnnotations.StringLength(1000)]
+        public string? Description { get; set; }
+        public int CourseId { get; set; }
+    }
+}
