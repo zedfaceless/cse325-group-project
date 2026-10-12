@@ -13,7 +13,7 @@
 
 @* ---- Create / Edit form. EditForm + DataAnnotationsValidator = the W04 module's
       form stack: validation comes from the attributes on the Course model. ---- *@
-<div class="card p-3 mb-4" style="max-width: 480px;">
+<div class="card p-3 mb-4" style="max-width: 640px;">
     <h5>@(editing is null ? "Add a course" : $"Edit: {editing.Name}")</h5>
     <EditForm Model="form" OnValidSubmit="Save" FormName="courseForm">
         <DataAnnotationsValidator />
@@ -27,6 +27,63 @@
             <label class="form-label">Description</label>
             <InputTextArea class="form-control" @bind-Value="form.Description" />
         </div>
+
+        <hr class="my-3" />
+        <h6 class="text-muted">Schedule</h6>
+
+        <div class="mb-2">
+            <label class="form-label">Class format</label>
+            <InputSelect class="form-select" @bind-Value="format">
+                <option value="1">Once a week — 90-minute classes</option>
+                <option value="2">Twice a week — 45-minute classes</option>
+            </InputSelect>
+        </div>
+
+        <div class="row">
+            <div class="col-sm-6 mb-2">
+                <label class="form-label">Meets on</label>
+                <InputSelect class="form-select" @bind-Value="day1">
+                    @foreach (var day in Days)
+                    {
+                        <option value="@day">@day</option>
+                    }
+                </InputSelect>
+            </div>
+            @if (format == "2")
+            {
+                <div class="col-sm-6 mb-2">
+                    <label class="form-label">Second day</label>
+                    <InputSelect class="form-select" @bind-Value="day2">
+                        @foreach (var day in Days.Where(d => d != day1))
+                        {
+                            <option value="@day">@day</option>
+                        }
+                    </InputSelect>
+                </div>
+            }
+        </div>
+
+        <div class="row">
+            <div class="col-sm-4 mb-2">
+                <label class="form-label">Starts at</label>
+                <input type="time" class="form-control" value="@startTimeText"
+                       @onchange="(ChangeEventArgs e) => startTimeText = e.Value?.ToString() ?? startTimeText" />
+            </div>
+            <div class="col-sm-4 mb-2">
+                <label class="form-label">Weeks of lessons</label>
+                <input type="number" class="form-control" min="1" max="30" @bind="weeks" />
+            </div>
+            <div class="col-sm-4 mb-2">
+                <label class="form-label">First class on</label>
+                <input type="date" class="form-control" value="@startDateText"
+                       @onchange="(ChangeEventArgs e) => startDateText = e.Value?.ToString() ?? startDateText" />
+            </div>
+        </div>
+
+        @if (error is not null)
+        {
+            <div class="alert alert-danger py-2 mt-2" role="alert">@error</div>
+        }
 
         <div>
             <button type="submit" class="btn btn-primary">@(editing is null ? "Create" : "Save changes")</button>
@@ -45,9 +102,9 @@
 }
 else
 {
-    <table class="table" style="max-width: 720px;">
+    <table class="table" style="max-width: 900px;">
         <thead>
-            <tr><th>Name</th><th>Description</th><th></th></tr>
+            <tr><th>Name</th><th>Description</th><th>Schedule</th><th></th></tr>
         </thead>
         <tbody>
             @foreach (var course in courses)
@@ -55,6 +112,7 @@ else
                 <tr>
                     <td>@course.Name</td>
                     <td>@course.Description</td>
+                    <td class="text-nowrap">@ScheduleFormatting.Format(course)@(course.StartDate != default ? $" · starts {course.StartDate:MMM d, yyyy}" : null)</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" @onclick="() => StartEdit(course)">Edit</button>
                         <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => Delete(course)">Delete</button>
@@ -70,9 +128,21 @@ else
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private string teacherId = string.Empty;
 
+    private static readonly string[] Days =
+        { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+
     private List<Course> courses = new();
     private Course form = new();       // the object the EditForm binds to
     private Course? editing = null;    // null = creating, otherwise the course being edited
+
+    // Schedule inputs. "1"/"2" keeps InputSelect binding string-simple.
+    private string format = "1";
+    private string day1 = "Tuesday";
+    private string day2 = "Thursday";
+    private string startTimeText = "19:00";
+    private string startDateText = "2026-10-26";   // semester anchor; Oct 26 2026 for the first release
+    private int weeks = 14;
+    private string? error;
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,6 +161,32 @@ else
 
     private async Task Save()
     {
+        error = null;
+
+        if (!TimeOnly.TryParse(startTimeText, out var start))
+        {
+            error = "Enter a valid start time.";
+            return;
+        }
+        if (!DateOnly.TryParse(startDateText, out var startDate))
+        {
+            error = "Enter a valid first class date.";
+            return;
+        }
+        if (weeks < 1 || weeks > 30)
+        {
+            error = "Weeks of lessons must be between 1 and 30.";
+            return;
+        }
+
+        // Map the schedule inputs onto the course before saving.
+        form.ScheduleDays = format == "2" ? $"{day1}, {day2}" : day1;
+        form.StartTime = start;
+        form.SessionsPerWeek = format == "2" ? 2 : 1;
+        form.MinutesPerSession = format == "2" ? 45 : 90;
+        form.Weeks = weeks;
+        form.StartDate = startDate;
+
         if (editing is null)
         {
             form.TeacherId = teacherId;   // ownership set server-side, never from user input
@@ -100,6 +196,12 @@ else
         {
             editing.Name = form.Name;
             editing.Description = form.Description;
+            editing.ScheduleDays = form.ScheduleDays;
+            editing.StartTime = form.StartTime;
+            editing.SessionsPerWeek = form.SessionsPerWeek;
+            editing.MinutesPerSession = form.MinutesPerSession;
+            editing.Weeks = form.Weeks;
+            editing.StartDate = form.StartDate;
         }
         await Db.SaveChangesAsync();
         form = new();
@@ -111,12 +213,25 @@ else
     {
         editing = course;
         form = new Course { Name = course.Name, Description = course.Description };
+
+        var days = course.ScheduleDays
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        day1 = days.Length > 0 ? days[0] : "Tuesday";
+        day2 = days.Length > 1 ? days[1] : "Thursday";
+        format = course.SessionsPerWeek == 2 ? "2" : "1";
+        startTimeText = course.StartTime.ToString("HH:mm");
+        startDateText = course.StartDate != default
+            ? course.StartDate.ToString("yyyy-MM-dd")
+            : startDateText;
+        weeks = course.Weeks > 0 ? course.Weeks : 14;
+        error = null;
     }
 
     private void CancelEdit()
     {
         editing = null;
         form = new();
+        error = null;
     }
 
     private async Task Delete(Course course)
