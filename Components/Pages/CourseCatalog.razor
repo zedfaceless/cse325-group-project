@@ -37,13 +37,22 @@ else
                         <p class="card-text mb-1">
                             <small class="text-muted">Teacher: @course.TeacherName</small>
                         </p>
-                        <p class="card-text mb-0">
+                        <p class="card-text mb-1">
                             <small class="text-muted">@ScheduleFormatting.Format(course.ScheduleDays, course.StartTime, course.SessionsPerWeek, course.MinutesPerSession, course.Weeks)</small>
                         </p>
+                        @if (course.StartDate != default)
+                        {
+                            <p class="card-text mb-0">
+                                <small class="text-muted">Starts @course.StartDate.ToString("D")</small>
+                            </p>
+                        }
                     </div>
                     @if (enrolledCourseIds.Contains(course.Id))
                     {
-                        <span class="badge bg-success align-self-center">Enrolled</span>
+                        <div class="d-flex flex-column align-items-end gap-2 align-self-center">
+                            <span class="badge bg-success">Enrolled</span>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="() => Drop(course.Id)">Drop class</button>
+                        </div>
                     }
                     else
                     {
@@ -89,7 +98,8 @@ else
                 StartTime = course.StartTime,
                 SessionsPerWeek = course.SessionsPerWeek,
                 MinutesPerSession = course.MinutesPerSession,
-                Weeks = course.Weeks
+                Weeks = course.Weeks,
+                StartDate = course.StartDate
             })
             .OrderBy(c => c.Name)
             .ToListAsync();
@@ -131,6 +141,27 @@ else
         await LoadData();
     }
 
+    // Lets a student undo an accidental enrollment. Only the student's own
+    // enrollment row is ever touched; re-enrolling later is just one click.
+    private async Task Drop(int courseId)
+    {
+        var enrollment = await Db.Enrollments.SingleOrDefaultAsync(e =>
+            e.CourseId == courseId && e.StudentId == studentId);
+        if (enrollment is null)
+        {
+            SetMessage("You are not enrolled in that course.", "alert-warning");
+            await LoadData();
+            return;
+        }
+
+        var name = courses?.FirstOrDefault(c => c.Id == courseId)?.Name ?? "that course";
+        Db.Enrollments.Remove(enrollment);
+        await Db.SaveChangesAsync();
+
+        SetMessage($"You dropped {name}. You can re-enroll anytime.", "alert-info");
+        await LoadData();
+    }
+
     private void SetMessage(string text, string cssClass)
     {
         message = text;
@@ -148,5 +179,6 @@ else
         public int SessionsPerWeek { get; init; }
         public int MinutesPerSession { get; init; }
         public int Weeks { get; init; }
+        public DateOnly StartDate { get; init; }
     }
 }

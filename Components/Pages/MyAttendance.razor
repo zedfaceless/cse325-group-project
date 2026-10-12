@@ -9,67 +9,162 @@
 
 <PageTitle>My Attendance</PageTitle>
 <h1>My Attendance</h1>
-<p class="text-muted">Attendance records for your enrolled courses.</p>
+<p class="text-muted">Your classes, when they start, and your attendance so far.</p>
 
 @if (loading)
 {
-    <p>Loading your attendance...</p>
+    <p>Loading your classes...</p>
 }
-else if (!records.Any())
+else if (!courses.Any())
 {
-    <div class="alert alert-info" role="status">No attendance records are available yet.</div>
+    <div class="alert alert-info" role="status">
+        You are not enrolled in any course yet. <a href="/course-catalog">Browse the course catalog</a> to pick one.
+    </div>
 }
 else
 {
-    <div class="table-responsive">
-        <table class="table table-striped align-middle">
-            <thead><tr><th>Course</th><th>Session date</th><th>Topic</th><th>Status</th></tr></thead>
-            <tbody>
-                @foreach (var item in records)
+    @foreach (var course in courses)
+    {
+        <div class="card mb-4" style="max-width: 720px;">
+            <div class="card-body">
+                <h5 class="card-title mb-1">@course.CourseName</h5>
+                <p class="card-text mb-1"><small class="text-muted">Teacher: @course.TeacherName</small></p>
+                <p class="card-text mb-1"><small class="text-muted">@course.ScheduleLine</small></p>
+                @if (course.StartDate != default)
                 {
-                    <tr>
-                        <td>@item.CourseName</td>
-                        <td>@item.SessionDate.ToString("D")</td>
-                        <td>@item.Topic</td>
-                        <td><span class="badge @(item.IsPresent ? "bg-success" : "bg-danger")">@(item.IsPresent ? "Present" : "Absent")</span></td>
-                    </tr>
+                    <p class="card-text mb-0"><small class="text-muted">Starts @course.StartDate.ToString("D")</small></p>
                 }
-            </tbody>
-        </table>
-    </div>
+
+                @if (course.Sessions.Any())
+                {
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Class date</th><th>Status</th></tr></thead>
+                            <tbody>
+                                @foreach (var session in course.Sessions)
+                                {
+                                    <tr class="@(session.IsNext ? "table-primary" : null)">
+                                        <td>@session.Date.ToString("ddd, MMM d, yyyy")</td>
+                                        <td>
+                                            @if (session.Attendance is bool present)
+                                            {
+                                                <span class="badge @(present ? "bg-success" : "bg-danger")">@(present ? "Present" : "Absent")</span>
+                                            }
+                                            else if (session.Date < today)
+                                            {
+                                                <span class="text-muted">Not recorded</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">@(session.IsNext ? "Next class" : "Upcoming")</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-light border mt-3 mb-0" role="status">Schedule to be announced.</div>
+                }
+            </div>
+        </div>
+    }
 }
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private bool loading = true;
-    private List<AttendanceView> records = new();
+    private DateOnly today;
+    private List<CourseView> courses = new();
 
     protected override async Task OnInitializedAsync()
     {
         var auth = await AuthState!;
         var studentId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(studentId)) { loading = false; return; }
+        today = DateOnly.FromDateTime(DateTime.Now);
 
-        // The student ID comes only from the authenticated principal, never from a URL or form field.
-        records = await Db.Attendances.AsNoTracking()
-            .Where(a => a.StudentId == studentId && Db.Enrollments.Any(e => e.StudentId == studentId && e.CourseId == a.Session!.CourseId))
-            .Select(a => new AttendanceView
+        if (string.IsNullOrWhiteSpace(studentId))
+        {
+            loading = false;
+            return;
+        }
+
+        var enrolled = await (
+            from enrollment in Db.Enrollments.AsNoTracking()
+            join course in Db.Courses.AsNoTracking() on enrollment.CourseId equals course.Id
+            join teacher in Db.Users.AsNoTracking() on course.TeacherId equals teacher.Id
+            where enrollment.StudentId == studentId
+            select new
             {
-                CourseName = a.Session!.Course!.Name,
-                SessionDate = a.Session.Date,
-                Topic = a.Session.Topic,
-                IsPresent = a.IsPresent
+                course.Id,
+                course.Name,
+                TeacherName = teacher.FullName ?? teacher.Email!,
+                course.ScheduleDays,
+                course.StartTime,
+                course.SessionsPerWeek,
+                course.MinutesPerSession,
+                course.Weeks,
+                course.StartDate
             })
-            .OrderByDescending(a => a.SessionDate)
+            .OrderBy(c => c.Name)
             .ToListAsync();
+
+        // This student's recorded attendance, keyed by course + session date so the
+        // calendar can mark each generated class date without needing Session rows.
+        var recorded = (await Db.Attendances.AsNoTracking()
+            .Where(a => a.StudentId == studentId)
+            .Select(a => new { a.Session!.CourseId, a.Session!.Date, a.IsPresent })
+            .ToListAsync())
+            .GroupBy(a => (a.CourseId, DateOnly.FromDateTime(a.Date)))
+            .ToDictionary(g => g.Key, g => g.First().IsPresent);
+
+        courses = enrolled.Select(c =>
+        {
+            var sessions = SemesterCalendar.ClassDates(c.ScheduleDays, c.StartDate, c.SessionsPerWeek, c.Weeks)
+                .Select(date => new ClassDateView
+                {
+                    Date = date,
+                    Attendance = recorded.TryGetValue((c.Id, date), out var present) ? present : null
+                })
+                .ToList();
+
+            var next = sessions.FirstOrDefault(s => s.Date >= today);
+            if (next is not null)
+            {
+                next.IsNext = true;
+            }
+
+            return new CourseView
+            {
+                CourseName = c.Name,
+                TeacherName = c.TeacherName,
+                ScheduleLine = ScheduleFormatting.Format(c.ScheduleDays, c.StartTime, c.SessionsPerWeek, c.MinutesPerSession, c.Weeks),
+                StartDate = c.StartDate,
+                Sessions = sessions
+            };
+        })
+        .ToList();
+
         loading = false;
     }
 
-    private sealed class AttendanceView
+    private sealed class CourseView
     {
         public string CourseName { get; init; } = string.Empty;
-        public DateTime SessionDate { get; init; }
-        public string Topic { get; init; } = string.Empty;
-        public bool IsPresent { get; init; }
+        public string TeacherName { get; init; } = string.Empty;
+        public string ScheduleLine { get; init; } = string.Empty;
+        public DateOnly StartDate { get; init; }
+        public List<ClassDateView> Sessions { get; init; } = new();
+    }
+
+    private sealed class ClassDateView
+    {
+        public DateOnly Date { get; init; }
+        // null = no attendance recorded for this class date yet
+        public bool? Attendance { get; init; }
+        public bool IsNext { get; set; }
     }
 }

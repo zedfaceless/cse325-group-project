@@ -269,6 +269,9 @@ namespace cse325_group_project.Migrations
                     b.Property<int>("SessionsPerWeek")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("TEXT");
+
                     b.Property<TimeOnly>("StartTime")
                         .HasColumnType("TEXT");
 

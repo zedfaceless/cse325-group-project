@@ -34,4 +34,7 @@ public class Course
     // Semester length in weeks; institute courses typically run 14
     [Range(1, 30)]
     public int Weeks { get; set; } = 14;
+
+    // First day of the semester; every class date is generated from this anchor.
+    public DateOnly StartDate { get; set; }
 }

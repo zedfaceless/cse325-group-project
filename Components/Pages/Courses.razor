@@ -64,14 +64,19 @@
         </div>
 
         <div class="row">
-            <div class="col-sm-6 mb-2">
+            <div class="col-sm-4 mb-2">
                 <label class="form-label">Starts at</label>
                 <input type="time" class="form-control" value="@startTimeText"
                        @onchange="(ChangeEventArgs e) => startTimeText = e.Value?.ToString() ?? startTimeText" />
             </div>
-            <div class="col-sm-6 mb-2">
+            <div class="col-sm-4 mb-2">
                 <label class="form-label">Weeks of lessons</label>
                 <input type="number" class="form-control" min="1" max="30" @bind="weeks" />
+            </div>
+            <div class="col-sm-4 mb-2">
+                <label class="form-label">First class on</label>
+                <input type="date" class="form-control" value="@startDateText"
+                       @onchange="(ChangeEventArgs e) => startDateText = e.Value?.ToString() ?? startDateText" />
             </div>
         </div>
 
@@ -107,7 +112,7 @@ else
                 <tr>
                     <td>@course.Name</td>
                     <td>@course.Description</td>
-                    <td class="text-nowrap">@ScheduleFormatting.Format(course)</td>
+                    <td class="text-nowrap">@ScheduleFormatting.Format(course)@(course.StartDate != default ? $" · starts {course.StartDate:MMM d, yyyy}" : null)</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" @onclick="() => StartEdit(course)">Edit</button>
                         <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => Delete(course)">Delete</button>
@@ -135,6 +140,7 @@ else
     private string day1 = "Tuesday";
     private string day2 = "Thursday";
     private string startTimeText = "19:00";
+    private string startDateText = "2026-10-26";   // semester anchor; Oct 26 2026 for the first release
     private int weeks = 14;
     private string? error;
 
@@ -162,6 +168,11 @@ else
             error = "Enter a valid start time.";
             return;
         }
+        if (!DateOnly.TryParse(startDateText, out var startDate))
+        {
+            error = "Enter a valid first class date.";
+            return;
+        }
         if (weeks < 1 || weeks > 30)
         {
             error = "Weeks of lessons must be between 1 and 30.";
@@ -174,6 +185,7 @@ else
         form.SessionsPerWeek = format == "2" ? 2 : 1;
         form.MinutesPerSession = format == "2" ? 45 : 90;
         form.Weeks = weeks;
+        form.StartDate = startDate;
 
         if (editing is null)
         {
@@ -189,6 +201,7 @@ else
             editing.SessionsPerWeek = form.SessionsPerWeek;
             editing.MinutesPerSession = form.MinutesPerSession;
             editing.Weeks = form.Weeks;
+            editing.StartDate = form.StartDate;
         }
         await Db.SaveChangesAsync();
         form = new();
@@ -207,6 +220,9 @@ else
         day2 = days.Length > 1 ? days[1] : "Thursday";
         format = course.SessionsPerWeek == 2 ? "2" : "1";
         startTimeText = course.StartTime.ToString("HH:mm");
+        startDateText = course.StartDate != default
+            ? course.StartDate.ToString("yyyy-MM-dd")
+            : startDateText;
         weeks = course.Weeks > 0 ? course.Weeks : 14;
         error = null;
     }
