@@ -144,6 +144,13 @@ namespace cse325_group_project.Areas.Identity.Pages.Account
                     else
                     {
                         await _signInManager.SignInAsync(user, isPersistent: false);
+                        // Every registration is a Student, so a brand-new account goes
+                        // straight to the catalog to pick courses, unless the user was
+                        // headed somewhere specific before registering.
+                        if (returnUrl == Url.Content("~/"))
+                        {
+                            returnUrl = "/course-catalog";
+                        }
                         return LocalRedirect(returnUrl);
                     }
                 }
