@@ -1,0 +1,136 @@
+@page "/course-catalog"
+@attribute [Authorize(Roles = "Student")]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using cse325_group_project.Data
+@using cse325_group_project.Models
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Db
+
+<PageTitle>Course Catalog</PageTitle>
+<h1>Course Catalog</h1>
+<p class="text-muted">Browse the courses your teachers have created and enroll yourself.</p>
+
+@if (message is not null)
+{
+    <div class="alert @messageCssClass" role="alert">@message</div>
+}
+
+@if (courses is null)
+{
+    <p>Loading courses...</p>
+}
+else if (!courses.Any())
+{
+    <div class="alert alert-info" role="status">No courses are available yet — check back soon.</div>
+}
+else
+{
+    <div class="d-flex flex-column gap-3" style="max-width: 720px;">
+        @foreach (var course in courses)
+        {
+            <div class="card">
+                <div class="card-body d-flex justify-content-between align-items-start gap-3">
+                    <div>
+                        <h5 class="card-title mb-1">@course.Name</h5>
+                        <p class="card-text mb-1">@course.Description</p>
+                        <p class="card-text mb-0"><small class="text-muted">Teacher: @course.TeacherEmail</small></p>
+                    </div>
+                    @if (enrolledCourseIds.Contains(course.Id))
+                    {
+                        <span class="badge bg-success align-self-center">Enrolled</span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary btn-sm align-self-center" @onclick="() => Enroll(course.Id)">Enroll</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    // The logged-in student's Identity user id, read from the auth state — never from user input.
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private string studentId = string.Empty;
+
+    private List<CourseCatalogItem>? courses;
+    private HashSet<int> enrolledCourseIds = new();
+    private string? message;
+    private string messageCssClass = "alert-success";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState!;
+        studentId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        // Every course from every teacher, joined to Users just to show who teaches it.
+        courses = await (
+            from course in Db.Courses.AsNoTracking()
+            join teacher in Db.Users.AsNoTracking() on course.TeacherId equals teacher.Id
+            select new CourseCatalogItem
+            {
+                Id = course.Id,
+                Name = course.Name,
+                Description = course.Description,
+                TeacherEmail = teacher.Email!
+            })
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+
+        enrolledCourseIds = (await Db.Enrollments.AsNoTracking()
+            .Where(e => e.StudentId == studentId)
+            .Select(e => e.CourseId)
+            .ToListAsync())
+            .ToHashSet();
+    }
+
+    private async Task Enroll(int courseId)
+    {
+        var course = courses?.FirstOrDefault(c => c.Id == courseId);
+        if (course is null)
+        {
+            SetMessage("That course no longer exists.", "alert-danger");
+            await LoadData();
+            return;
+        }
+
+        // Friendly duplicate check; the unique (CourseId, StudentId) index enforces it in the DB too.
+        var alreadyEnrolled = await Db.Enrollments.AnyAsync(e =>
+            e.CourseId == courseId && e.StudentId == studentId);
+        if (alreadyEnrolled)
+        {
+            SetMessage($"You are already enrolled in {course.Name}.", "alert-warning");
+            return;
+        }
+
+        Db.Enrollments.Add(new Enrollment
+        {
+            CourseId = courseId,
+            StudentId = studentId
+        });
+        await Db.SaveChangesAsync();
+
+        SetMessage($"You are now enrolled in {course.Name}.", "alert-success");
+        await LoadData();
+    }
+
+    private void SetMessage(string text, string cssClass)
+    {
+        message = text;
+        messageCssClass = cssClass;
+    }
+
+    private sealed class CourseCatalogItem
+    {
+        public int Id { get; init; }
+        public string Name { get; init; } = string.Empty;
+        public string? Description { get; init; }
+        public string TeacherEmail { get; init; } = string.Empty;
+    }
+}
