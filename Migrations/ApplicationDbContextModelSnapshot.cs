@@ -168,6 +168,10 @@ namespace cse325_group_project.Migrations
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("FullName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("INTEGER");
 
@@ -249,14 +253,31 @@ namespace cse325_group_project.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("MinutesPerSession")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ScheduleDays")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SessionsPerWeek")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("TeacherId")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("Weeks")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -292,16 +313,37 @@ namespace cse325_group_project.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("CourseId").HasColumnType("INTEGER");
-                    b.Property<string>("Description").HasMaxLength(1000).HasColumnType("TEXT");
-                    b.Property<string>("FileName").IsRequired().HasMaxLength(255).HasColumnType("TEXT");
-                    b.Property<string>("StorageId").IsRequired().HasMaxLength(100).HasColumnType("TEXT");
-                    b.Property<string>("Title").IsRequired().HasMaxLength(150).HasColumnType("TEXT");
-                    b.Property<DateTime>("UploadedAtUtc").HasColumnType("TEXT");
-                    b.Property<string>("UploadedByTeacherId").IsRequired().HasColumnType("TEXT");
+                    b.Property<int>("CourseId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StorageId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UploadedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UploadedByTeacherId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
-                    b.HasIndex("CourseId");
+
                     b.ToTable("Materials");
                 });
 
@@ -414,6 +456,7 @@ namespace cse325_group_project.Migrations
                         .IsRequired();
 
                     b.Navigation("Course");
+
                     b.Navigation("Student");
                 });
 

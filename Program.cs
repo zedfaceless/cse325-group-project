@@ -55,7 +55,7 @@ using (var scope = app.Services.CreateScope())
     var teacherEmail = "teacher@institute.test";
     if (await userManager.FindByEmailAsync(teacherEmail) is null)
     {
-        var teacher = new ApplicationUser { UserName = teacherEmail, Email = teacherEmail, EmailConfirmed = true };
+        var teacher = new ApplicationUser { UserName = teacherEmail, Email = teacherEmail, EmailConfirmed = true, FullName = "Institute Teacher" };
         await userManager.CreateAsync(teacher, "Teacher123$");
         await userManager.AddToRoleAsync(teacher, "Teacher");
     }

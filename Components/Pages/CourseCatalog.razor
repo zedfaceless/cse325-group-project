@@ -34,7 +34,12 @@ else
                     <div>
                         <h5 class="card-title mb-1">@course.Name</h5>
                         <p class="card-text mb-1">@course.Description</p>
-                        <p class="card-text mb-0"><small class="text-muted">Teacher: @course.TeacherEmail</small></p>
+                        <p class="card-text mb-1">
+                            <small class="text-muted">Teacher: @course.TeacherName</small>
+                        </p>
+                        <p class="card-text mb-0">
+                            <small class="text-muted">@ScheduleFormatting.Format(course.ScheduleDays, course.StartTime, course.SessionsPerWeek, course.MinutesPerSession, course.Weeks)</small>
+                        </p>
                     </div>
                     @if (enrolledCourseIds.Contains(course.Id))
                     {
@@ -69,7 +74,8 @@ else
 
     private async Task LoadData()
     {
-        // Every course from every teacher, joined to Users just to show who teaches it.
+        // Every course from every teacher, joined to Users so students can see
+        // who teaches what and when each class meets.
         courses = await (
             from course in Db.Courses.AsNoTracking()
             join teacher in Db.Users.AsNoTracking() on course.TeacherId equals teacher.Id
@@ -78,7 +84,12 @@ else
                 Id = course.Id,
                 Name = course.Name,
                 Description = course.Description,
-                TeacherEmail = teacher.Email!
+                TeacherName = teacher.FullName ?? teacher.Email!,
+                ScheduleDays = course.ScheduleDays,
+                StartTime = course.StartTime,
+                SessionsPerWeek = course.SessionsPerWeek,
+                MinutesPerSession = course.MinutesPerSession,
+                Weeks = course.Weeks
             })
             .OrderBy(c => c.Name)
             .ToListAsync();
@@ -131,6 +142,11 @@ else
         public int Id { get; init; }
         public string Name { get; init; } = string.Empty;
         public string? Description { get; init; }
-        public string TeacherEmail { get; init; } = string.Empty;
+        public string TeacherName { get; init; } = string.Empty;
+        public string ScheduleDays { get; init; } = string.Empty;
+        public TimeOnly StartTime { get; init; }
+        public int SessionsPerWeek { get; init; }
+        public int MinutesPerSession { get; init; }
+        public int Weeks { get; init; }
     }
 }
