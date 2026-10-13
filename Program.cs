@@ -1,5 +1,6 @@
 using cse325_group_project.Components;
 using cse325_group_project.Data;
+using cse325_group_project.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -49,16 +50,7 @@ using (var scope = app.Services.CreateScope())
         if (!await roleManager.RoleExistsAsync(role))
             await roleManager.CreateAsync(new IdentityRole(role));
     }
-
-    // 3. Crearing teacher by deffault
-    var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
-    var teacherEmail = "teacher@institute.test";
-    if (await userManager.FindByEmailAsync(teacherEmail) is null)
-    {
-        var teacher = new ApplicationUser { UserName = teacherEmail, Email = teacherEmail, EmailConfirmed = true, FullName = "Institute Teacher" };
-        await userManager.CreateAsync(teacher, "Teacher123$");
-        await userManager.AddToRoleAsync(teacher, "Teacher");
-    }
+        await DemoDataSeeder.SeedAsync(services, builder.Configuration);
 }
 
 if (!app.Environment.IsDevelopment())
