@@ -17,7 +17,7 @@ public class Course
     public string TeacherId { get; set; } = string.Empty;
 
     // Weekdays the class meets, e.g. "Tuesday" or "Monday, Thursday"
-    [Required]
+    // [Required]
     [StringLength(40)]
     public string ScheduleDays { get; set; } = string.Empty;
 
